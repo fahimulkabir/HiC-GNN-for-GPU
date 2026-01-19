@@ -11,48 +11,46 @@ from torch.optim import Adam
 from scipy.stats import spearmanr
 import ast 
 import argparse
-import pdb 
-import sys
 
 if __name__ == "__main__":
+
+    # =========================
+    # DEVICE SETUP (NEW)
+    # =========================
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     if not(os.path.exists('Outputs')):
         os.makedirs('Outputs')
 
     if not(os.path.exists('Data')):
         os.makedirs('Data')
 
-    parser = argparse.ArgumentParser(description='Generalize a trained model to new data. If the system can not find embeddings and normalized matrices\
-    corresponding to the base names of list_trained and list_untrained in the Data directory, the script automatically generates them. If the system cannot\
-    find model weights corresponding to the base name of list_trained in the Outputs directory, the script automatically trains a model using the data and embeddings\
-    corresponding to the data in list_trained.')
-    parser.add_argument('list_trained', type=str, help='File path for list format of raw Hi-C corresponding to embeddings_trained.')
-    parser.add_argument('list_untrained', type=str, help='File path for list format of raw Hi-C corresponding to embeddings_untrained.')
-    parser.add_argument('-c', '--conversions',  type=str, default = '[.1,.1, 2]', help='List of conversion constants of the form [lowest, interval, highest] for an set of\
-    equally spaced conversion factors, or of the form [conversion] for a single conversion factor.')
-    parser.add_argument('-bs', '--batchsize',  type=int, default=128, help='Batch size for embeddings generation.')
-    parser.add_argument('-ep', '--epochs', type=int, default=10, help='Number of epochs used for embeddings generation')
-    parser.add_argument('-lr', '--learningrate',  type=float, default=.001, help='Learning rate for training GCNN.')
-    parser.add_argument('-th', '--threshold', type=float, default=1e-8, help='Loss threshold for training termination.')
-    
+    parser = argparse.ArgumentParser(description='Generalize a trained model to new data.')
+    parser.add_argument('list_trained', type=str)
+    parser.add_argument('list_untrained', type=str)
+    parser.add_argument('-c', '--conversions', type=str, default='[.1,.1, 2]')
+    parser.add_argument('-bs', '--batchsize', type=int, default=128)
+    parser.add_argument('-ep', '--epochs', type=int, default=10)
+    parser.add_argument('-lr', '--learningrate', type=float, default=.001)
+    parser.add_argument('-th', '--threshold', type=float, default=1e-8)
 
     args = parser.parse_args()
 
     filepath_trained = args.list_trained
     filepath_untrained = args.list_untrained
-    conversions = args.conversions
     batch_size = args.batchsize
     epochs = args.epochs
     lr = args.learningrate
     thresh = args.threshold
 
-    conversions = ast.literal_eval(conversions)
+    conversions = ast.literal_eval(args.conversions)
     if len(conversions) == 3:
         conversions = list(np.arange(conversions[0], conversions[2], conversions[1]))
     elif len(conversions) == 1:
         conversions = [conversions[0]]
     else:
         raise Exception('Invalid conversion input.')
-        sys.exit(2)   
 
     name_trained = os.path.splitext(os.path.basename(filepath_trained))[0]
     name_untrained = os.path.splitext(os.path.basename(filepath_untrained))[0]
@@ -60,187 +58,130 @@ if __name__ == "__main__":
     list_trained = np.loadtxt(filepath_trained)
     list_untrained = np.loadtxt(filepath_untrained)
 
-    if not(os.path.isfile('Data/' + name_trained + '_matrix.txt')):
-        print('Failed to find matrix form of ' + filepath_trained + ' from Data/' + name_trained + '_matrix.txt.')
+    # ---------- preprocessing stays unchanged ----------
+    if not os.path.isfile(f'Data/{name_trained}_matrix.txt'):
         adj_trained = utils.convert_to_matrix(list_trained)
         np.fill_diagonal(adj_trained, 0)
-        np.savetxt('Data/' + name_trained + '_matrix.txt', adj_trained, delimiter='\t')
-        print('Created matrix form of ' + filepath_trained + ' as Data/' + name_trained + '_matrix.txt.')
-    matrix_trained = np.loadtxt('Data/' + name_trained + '_matrix.txt')
+        np.savetxt(f'Data/{name_trained}_matrix.txt', adj_trained)
 
-    if not(os.path.isfile('Data/' + name_untrained + '_matrix.txt')):
-        print('Failed to find matrix form of ' + filepath_untrained + ' from Data/' + name_untrained + '_matrix.txt.')
+    if not os.path.isfile(f'Data/{name_untrained}_matrix.txt'):
         adj_untrained = utils.convert_to_matrix(list_untrained)
         np.fill_diagonal(adj_untrained, 0)
-        np.savetxt('Data/' + name_untrained + '_matrix.txt', adj_untrained, delimiter='\t')
-        print('Created matrix form of ' + filepath_untrained + ' as Data/' + name_untrained + '_matrix.txt.')
-    matrix_untrained = np.loadtxt('Data/' + name_untrained + '_matrix.txt')
+        np.savetxt(f'Data/{name_untrained}_matrix.txt', adj_untrained)
 
-    if not(os.path.isfile('Data/' + name_trained + '_matrix_KR_normed.txt')):
-        print('Failed to find normalized matrix form of ' + filepath_trained + ' from Data/' + name_trained + '_matrix_KR_normed.txt')
-        os.system('Rscript normalize.R ' + name_trained + '_matrix')
-        print('Created normalized matrix form of ' + filepath_trained + ' as Data/' + name_trained + '_matrix_KR_normed.txt')
-    normed_trained = np.loadtxt('Data/' + name_trained + '_matrix_KR_normed.txt')
+    matrix_trained = np.loadtxt(f'Data/{name_trained}_matrix.txt')
+    matrix_untrained = np.loadtxt(f'Data/{name_untrained}_matrix.txt')
 
-    if not(os.path.isfile('Data/' + name_untrained + '_matrix_KR_normed.txt')):
-        print('Failed to find normalized matrix form of ' + filepath_untrained + ' from Data/' + name_untrained + '_matrix_KR_normed.txt')
-        os.system('Rscript normalize.R ' + name_untrained + '_matrix')
-        print('Created normalized matrix form of ' + filepath_untrained + ' as Data/' + name_untrained + '_matrix_KR_normed.txt')
-    normed_untrained = np.loadtxt('Data/' + name_untrained + '_matrix_KR_normed.txt')
+    if not os.path.isfile(f'Data/{name_trained}_matrix_KR_normed.txt'):
+        os.system(f'Rscript normalize.R {name_trained}_matrix')
 
-    if not(os.path.isfile('Data/' + name_trained + '_embeddings.txt')):
-        print('Failed to find embeddings corresponding to ' + filepath_trained + ' from Data/' + name_trained + '_embeddings.txt')
+    if not os.path.isfile(f'Data/{name_untrained}_matrix_KR_normed.txt'):
+        os.system(f'Rscript normalize.R {name_untrained}_matrix')
+
+    normed_trained = np.loadtxt(f'Data/{name_trained}_matrix_KR_normed.txt')
+    normed_untrained = np.loadtxt(f'Data/{name_untrained}_matrix_KR_normed.txt')
+
+    # ---------- embeddings (still CPU only by design) ----------
+    if not os.path.isfile(f'Data/{name_trained}_embeddings.txt'):
         G = nx.from_numpy_matrix(matrix_trained)
+        embed = LINE(G, embedding_size=512, order='second')
+        embed.train(batch_size=batch_size, epochs=epochs, verbose=1)
+        embeddings_trained = np.asarray(list(embed.get_embeddings().values()))
+        np.savetxt(f'Data/{name_trained}_embeddings.txt', embeddings_trained)
 
-        embed_trained = LINE(G,embedding_size=512,order='second')
-        embed_trained.train(batch_size=batch_size,epochs=epochs,verbose=1)
-        embeddings_trained = embed_trained.get_embeddings()
-        embeddings_trained = list(embeddings_trained.values())
-        embeddings_trained = np.asarray(embeddings_trained)
-
-        np.savetxt('Data/' + name_trained + '_embeddings.txt', embeddings_trained)
-        print('Created embeddings corresponding to ' + filepath_trained + ' as Data/' + name_trained + '_embeddings.txt')
-    embeddings_trained = np.loadtxt('Data/' + name_trained + '_embeddings.txt')
-
-    if not(os.path.isfile('Data/' + name_untrained + '_embeddings.txt')):
-        print('Failed to find embeddings corresponding to ' + filepath_untrained + ' from Data/' + name_untrained + '_embeddings.txt')
+    if not os.path.isfile(f'Data/{name_untrained}_embeddings.txt'):
         G = nx.from_numpy_matrix(matrix_untrained)
+        embed = LINE(G, embedding_size=512, order='second')
+        embed.train(batch_size=batch_size, epochs=epochs, verbose=1)
+        embeddings_untrained = np.asarray(list(embed.get_embeddings().values()))
+        np.savetxt(f'Data/{name_untrained}_embeddings.txt', embeddings_untrained)
 
-        embed_untrained = LINE(G,embedding_size=512,order='second')
-        embed_untrained.train(batch_size=batch_size,epochs=epochs,verbose=1)
-        embeddings_untrained = embed_untrained.get_embeddings()
-        embeddings_untrained = list(embeddings_untrained.values())
-        embeddings_untrained = np.asarray(embeddings_untrained)
+    embeddings_trained = np.loadtxt(f'Data/{name_trained}_embeddings.txt')
+    embeddings_untrained = np.loadtxt(f'Data/{name_untrained}_embeddings.txt')
 
-        np.savetxt('Data/' + name_untrained + '_embeddings.txt', embeddings_untrained)
-        print('Created embeddings corresponding to ' + filepath_untrained + ' as Data/' + name_untrained + '_embeddings.txt')
-    embeddings_untrained = np.loadtxt('Data/' + name_untrained + '_embeddings.txt')
+    # =========================
+    # GPU-AWARE DATA CREATION (NEW)
+    # =========================
+    data_trained = utils.load_input(normed_trained, embeddings_trained, device)
+    data_untrained = utils.load_input(normed_untrained, embeddings_untrained, device)
 
-    
-    data_trained = utils.load_input(normed_trained , embeddings_trained)
-    data_untrained = utils.load_input(normed_untrained , embeddings_untrained)
+    # =========================
+    # TRAINING ON GPU (NEW)
+    # =========================
+    if not os.path.isfile(f'Outputs/{name_trained}_weights.pt'):
+        tempmodels, tempspear, tempmse, model_list = [], [], [], []
 
-    if not(os.path.isfile('Outputs/' + name_trained + '_weights.pt')):
-        print('Failed to find model weights corresponding to ' + filepath_trained + ' from Outputs/' + name_trained + '_weights.pt')
-        tempmodels = []
-        tempspear = []
-        tempmse = []
-        model_list = []
         for conversion in conversions:
-            print(f'Training model using conversion value {conversion}.')
-            model = Net()
+            model = Net().to(device)
             criterion = MSELoss()
-            optimizer = Adam(
-            model.parameters(), lr=lr)
+            optimizer = Adam(model.parameters(), lr=lr)
 
-            oldloss = 1 
+            truth = utils.cont2dist(data_trained.y, conversion).to(device)
+
+            oldloss = 1
             lossdiff = 1
-
-            truth = utils.cont2dist(data_trained.y, conversion)
 
             while lossdiff > thresh:
                 model.train()
-                optimizer.zero_grad() 
+                optimizer.zero_grad()
                 out = model(data_trained.x.float(), data_trained.edge_index)
                 loss = criterion(out.float(), truth.float())
-                # ===================backward====================
-                lossdiff = abs(oldloss - loss)
                 loss.backward()
                 optimizer.step()
+                lossdiff = abs(oldloss - loss)
                 oldloss = loss
-                print(f'Loss: {loss}', end='\r')
 
-            idx = torch.triu_indices(data_trained.y.shape[0],data_trained.y.shape[1],offset=1)
-            dist_truth = truth[idx[0,:],idx[1,:]]
-            coords = model.get_model(data_trained.x.float(),data_trained.edge_index)
-            out = torch.cdist(coords,coords)
-            dist_out = out[idx[0,:],idx[1,:]]
-            SpRho = spearmanr(dist_truth,dist_out.detach().numpy())[0]
+            coords = model.get_model(data_trained.x.float(), data_trained.edge_index)
+            out = torch.cdist(coords, coords)
+
+            idx = torch.triu_indices(data_trained.y.shape[0], data_trained.y.shape[1], offset=1, device=device)
+            dist_truth = truth[idx[0], idx[1]].detach().cpu().numpy()
+            dist_out = out[idx[0], idx[1]].detach().cpu().numpy()
+
+            SpRho = spearmanr(dist_truth, dist_out)[0]
 
             tempspear.append(SpRho)
             tempmodels.append(coords)
             tempmse.append(loss)
             model_list.append(model)
 
-        idx = tempspear.index(max(tempspear))
-        repmod = tempmodels[idx]
-        repspear = tempspear[idx]
-        repmse = tempmse[idx]
-        repconv = conversions[idx]
-        repnet = model_list[idx]   
+        idx_best = tempspear.index(max(tempspear))
+        repnet = model_list[idx_best]
+        repmod = tempmodels[idx_best]
 
-        print(f'Optimal conversion factor: {repconv}')
-        print(f'Optimal dSCC: {repspear}')
+        torch.save(repnet.state_dict(), f'Outputs/{name_trained}_weights.pt')
+        utils.WritePDB(repmod.detach().cpu().numpy()*100, f'Outputs/{name_trained}_structure.pdb')
 
-        with open('Outputs/' + name_trained + '_log.txt', 'w') as f:
-            line1 = f'Optimal conversion factor: {repconv}\n'
-            line2 = f'Optimal dSCC: {repspear}\n'
-            line3 = f'Final MSE loss: {repmse}\n'
-            f.writelines([line1, line2, line3])
-
-        torch.save(repnet.state_dict(), 'Outputs/' + name_trained + '_weights.pt')
-
-        utils.WritePDB(repmod*100, 'Outputs/' + name_trained + '_structure.pdb')
-
-        print('Saved trained model corresponding to ' + filepath_trained + ' to Outputs/' + name_trained + '_weights.pt')
-        print('Saved optimal structure corresponding to ' + filepath_trained + ' to Outputs/' + name_trained + '_structure.pdb')
-        conversions = [repconv]
-    
-    model = Net()
-    model.load_state_dict(torch.load('Outputs/' + name_trained + '_weights.pt'))
+    # =========================
+    # LOAD MODEL ON GPU (NEW)
+    # =========================
+    model = Net().to(device)
+    model.load_state_dict(torch.load(f'Outputs/{name_trained}_weights.pt', map_location=device))
     model.eval()
 
     fitembed = utils.domain_alignment(list_trained, list_untrained, embeddings_trained, embeddings_untrained)
-    
-    data_untrained_fit = utils.load_input(normed_untrained, fitembed)
+    data_untrained_fit = utils.load_input(normed_untrained, fitembed, device)
 
-    temp_spear = []
-    temp_models = []
+    temp_spear, temp_models = [], []
 
     for conversion in conversions:
-        truth = utils.cont2dist(data_untrained_fit.y,conversion).float()
+        truth = utils.cont2dist(data_untrained_fit.y, conversion).to(device)
 
-        idx = torch.triu_indices(data_untrained_fit.y.shape[0], data_untrained_fit.y.shape[1],offset=1)
-        dist_truth = truth[idx[0,:],idx[1,:]].detach().numpy()
         coords = model.get_model(data_untrained_fit.x.float(), data_untrained_fit.edge_index)
         out = torch.cdist(coords, coords)
-        dist_out = out[idx[0,:],idx[1,:]].detach().numpy()
+
+        idx = torch.triu_indices(truth.shape[0], truth.shape[1], offset=1, device=device)
+        dist_truth = truth[idx[0], idx[1]].detach().cpu().numpy()
+        dist_out = out[idx[0], idx[1]].detach().cpu().numpy()
 
         SpRho = spearmanr(dist_truth, dist_out)[0]
         temp_spear.append(SpRho)
         temp_models.append(coords)
 
-    idx = temp_spear.index(max(temp_spear))
-    repspear = temp_spear[idx]
-    repconv = conversions[idx]
-    repmod = temp_models[idx]
+    best = temp_spear.index(max(temp_spear))
+    repmod = temp_models[best]
 
-    print(f'Optimal conversion factor for generalized data: {repconv}')
-    print(f'Optimal dSCC for generalized data: {repspear}')
+    utils.WritePDB(repmod.detach().cpu().numpy()*100,
+                   f'Outputs/{name_untrained}_generalized_structure.pdb')
 
-
-    utils.WritePDB(repmod*100, 'Outputs/' + name_untrained + '_generalized_structure.pdb')
-    print('Saved optimal, generalized structure corresponding to ' + filepath_untrained + ' to Outputs/' + name_trained + '_structure.pdb')
-
-    with open('Outputs/' + name_untrained + '_generalized_log.txt', 'w') as f:
-            line1 = f'Optimal conversion factor: {repconv}\n'
-            line2 = f'Optimal dSCC: {repspear}\n'
-            f.writelines([line1, line2])
-
-        
-
-
-
-
-    
-
-    
-
-
-    
-
-
-    
-    
-
-    
+    print("Done.")
