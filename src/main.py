@@ -8,15 +8,22 @@ from scipy.stats import spearmanr
 
 from .normalization import preprocess_hic_file, kr_normalization
 from .embeddings import generate_embeddings
-from .utils import prepare_tensors, contact_to_distance
+from .utils import prepare_tensors, contact_to_distance, write_pdb
 from .models import UniversalHiCGNN
 
 def train_hic_gnn(filepath, device_name="cuda"):
-    # 1. Setup Device
+    # --- 0. Setup Directories ---
+    if not os.path.exists('Outputs'):
+        os.makedirs('Outputs')
+        print(" -> Created 'Outputs/' directory.")
+        
+    filename = os.path.splitext(os.path.basename(filepath))[0]
+
+    # --- 1. Setup Device ---
     device = torch.device(device_name if torch.cuda.is_available() else "cpu")
     print(f"Running on: {device}")
     
-    # 2. Load & Normalize Data (Python implementation)
+    # --- 2. Load & Normalize Data ---
     print(" -> Loading Data...")
     raw_matrix, _ = preprocess_hic_file(filepath)
     np.fill_diagonal(raw_matrix, 0)
@@ -24,16 +31,19 @@ def train_hic_gnn(filepath, device_name="cuda"):
     print(" -> Normalizing (KR)...")
     norm_matrix = kr_normalization(raw_matrix)
     
-    # 3. Generate Embeddings
+    # --- 3. Generate Embeddings ---
     embeddings = generate_embeddings(raw_matrix)
     
-    # 4. Prepare Tensors
+    # --- 4. Prepare Tensors ---
     features, adj_tensor = prepare_tensors(norm_matrix, embeddings, device)
     
-    # 5. Training Loop (Sweep over conversions)
+    # --- 5. Training Loop ---
     conversions = np.arange(0.1, 2.0, 0.1)
+    
     best_score = -1
     best_struct = None
+    best_model_state = None
+    best_alpha = None
     
     print(" -> Starting Training...")
     
@@ -45,7 +55,6 @@ def train_hic_gnn(filepath, device_name="cuda"):
         # Ground Truth
         truth = contact_to_distance(raw_matrix, alpha).to(device)
         
-        # Early Stopping vars
         prev_loss = float('inf')
         
         model.train()
@@ -57,7 +66,6 @@ def train_hic_gnn(filepath, device_name="cuda"):
             loss.backward()
             optimizer.step()
             
-            # Convergence check
             if abs(prev_loss - loss.item()) < 1e-8:
                 break
             prev_loss = loss.item()
@@ -69,7 +77,6 @@ def train_hic_gnn(filepath, device_name="cuda"):
             dist_out = torch.cdist(struct, struct).cpu().numpy()
             dist_truth = truth.cpu().numpy()
             
-            # Spearman correlation on upper triangle
             idx = np.triu_indices(dist_truth.shape[0], k=1)
             score = spearmanr(dist_truth[idx], dist_out[idx])[0]
             
@@ -78,9 +85,23 @@ def train_hic_gnn(filepath, device_name="cuda"):
             if score > best_score:
                 best_score = score
                 best_struct = struct.cpu().numpy()
+                best_model_state = model.state_dict()
+                best_alpha = alpha
 
-    print(f"\nFinal Result -> Best dSCC: {best_score:.4f}")
-    return best_score, best_struct
+    # --- 6. Save Results ---
+    print(f"\nFinal Result -> Best dSCC: {best_score:.4f} (Alpha: {best_alpha:.1f})")
+    
+    # Save Weights
+    weight_path = f"Outputs/{filename}_weights.pt"
+    torch.save(best_model_state, weight_path)
+    print(f" -> Saved weights to {weight_path}")
+    
+    # Save Structure (PDB)
+    pdb_path = f"Outputs/{filename}_structure.pdb"
+    write_pdb(best_struct, pdb_path)
+    print(f" -> Saved structure to {pdb_path}")
+    
+    return best_score
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
