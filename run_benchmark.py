@@ -66,7 +66,7 @@ for i in range(RUNS):
     # Parse results from the output text
     dSCC, alpha = parse_output(process.stdout)
 
-    print(f"✅ Done in {elapsed:.1f}s | dSCC: {dSCC} (Alpha: {alpha})")
+    print(f"Done in {elapsed:.1f}s | dSCC: {dSCC} (Alpha: {alpha})")
 
     results.append({
         "run": i + 1,
