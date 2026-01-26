@@ -1,119 +1,106 @@
-# HiC-GNN: A Generalizable Model for 3D Chromosome Reconstruction Using Graph Convolutional Neural Networks
+# HiC-GNN-for-GPU: A Generalizable Model for 3D Chromosome Reconstruction Using Graph Convolutional Neural Networks (With GPU)
 ------------------------------------------------------------------------------------------------------------------------------------
-**OluwadareLab,**
-**University of Colorado, Colorado Springs**
+Refactored from the original academic code, this version is designed for **universal compatibility**, running seamlessly on everything from standard CPUs to bleeding-edge GPUs (e.g., NVIDIA Blackwell, H100, RTX 6000 Ada) without dependency conflicts. It replaces deprecated libraries (`LINE`,`ge`, `tensorflow 1.x`) with modern **PyTorch** and **Node2Vec**. Replaced external R scripts with a native Python implementation of Knight-Ruiz (KR) normalization, eliminating complex environment setups
 
-----------------------------------------------------------------------
-**Developers:** <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Van Hovenga<br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Department of Mathematics <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;University of Colorado, Colorado Springs <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Email: vhovenga@uccs.edu <br /><br />
+## 📂 Repository Structure
 
-**Contact:** <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Oluwatosin Oluwadare, PhD <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Department of Computer Science <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;University of Colorado, Colorado Springs <br />
-		 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Email: ooluwada@uccs.edu 
- 
- --------------------------------------------------------------------	
-## **Description of HiC Data**:
---------------------------------------------------------------------	
-## **Build Instructions:**
-HiC-GNN runs in a Docker-containerized environment. Before cloning this repository and attempting to build, install the [Docker engine](https://docs.docker.com/engine/install/). To install and build HiC-GNN follow these steps.
+```text
+HiC-GNN-for-GPU/
+├── data/                 # Input Hi-C contact maps (e.g., GM12878_1mb_chr19_list.txt)
+├── src/                  # Core source code
+│   ├── main.py           # Main training and prediction script
+│   ├── models.py         # Pure PyTorch GNN model definitions
+│   ├── layers.py         # Custom GraphSAGE layers (Kernel-free)
+│   ├── embeddings.py     # Node2Vec structural embedding logic
+│   ├── normalization.py  # Python implementation of Knight-Ruiz (KR) normalization
+│   └── utils.py          # Data loading, PDB writing, and seeding tools
+├── Outputs/              # Generated results (PDB structures, model weights, logs)
+├── environment.yml       # Conda environment configuration
+├── run_benchmark.py      # Script to test performance and speed
+└── README.md             # Project documentation
+```
 
-1. Clone this repository locally using the command ``git clone https://github.com/OluwadareLab/HiC-GNN.git && cd HiC-GNN``. 
-2. Pull the HiC-GNN docker image from docker hub using the command ``docker pull oluwadarelab/hicgnn:latest``. This may take a few minutes. Once finished, check that the image was sucessfully pulled using ``docker image ls``.
-3. Run the HiC-GNN container and mount the present working directory to the container using ``docker run --rm -it --name hicgnn_cont -v ${PWD}:/HiC-GNN oluwadarelab/hicgnn``. 
+## 🛠️ Installation
 
---------------------------------------------------------------------	
-## **Content of Folders:**
-- Data: This folder contains two Hi-C contact maps in the coordinate list format for chromosome 19 of the GM12878 cell line- one at 1mb resolution and one at 500kb resolution. 
+We recommend using **Conda** to manage dependencies.
 
---------------------------------------------------------------------	
-## **Scripts**
+### 1. Clone the Repository
+```bash
+git clone https://github.com/fahimulkabir/HiC-GNN-for-GPU.git
+cd HiC-GNN-for-GPU
+```
 
-There are three python scripts used in this study. We describe their purposes and usage below.
+### 2. Create the Environment
+Create the `environment.yml` file with the following content (or use the file provided in the repo):
 
-### HiC-GNN_main.py
-This script takes a single Hi-C contact map as an input and utilizes it to train a HiC-GNN model. 
+**`environment.yml`**
+```yaml
+name: hicgnn-gpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - pandas
+  - networkx
+  - scikit-learn
+  - pip
+  - pip:
+    - node2vec
+```
 
-**Inputs**: 
-1. A Hi-C contact map in either matrix format or coordinate list format.
+Run the creation command:
+```bash
+conda env create -f environment.yml
+conda activate hicgnn-gpu
+```
 
-**Outputs**: 
-1. A .pdb file of the predicted 3D structure corresponding to the input file in ```Outputs/input_filename_structure.pdb```.
-2. A .txt file depicting the optimal conversion value, the dSCC value of the output structure, and final MSE loss of the trained model in ```Outputs/input_filename_log.txt```.
-3. A .pt file of the trained model weights corresponding to the input file in ```Outputs/input_filename_weights.pt```
-4. A .txt of the normalized Hi-C contact map corresponding to the KR normalization of the input file in ```Data/input_filename_matrix_KR_normed.txt```.
-5. A .txt file of the embeddings corresponding to the input file in ```Data/input_filename_embeddings.txt```. 
-6. (In the case that the input file was in list format) A .txt file of the input file in matrix format in ```Data/input_filename_matrix.txt```.
+### 3. Install PyTorch (Hardware Specific)
+Since drivers vary between servers (e.g., H100 vs. RTX 4090), install the version of PyTorch that matches your hardware:
 
-**Usage**: ```python HiC-GNN_main.py input_filepath```
+**Option A: Standard GPUs (H100, A100, RTX 3090/4090)**
+*For systems with CUDA 11.8 - 12.x drivers.*
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
 
-* **positional arguments**: <br />
-&nbsp;&nbsp;&nbsp;&nbsp;```input_filepath```: Path of the input file. <br />
+**Option B: Bleeding Edge GPUs (Blackwell / RTX 6000 Ada)**
+*For new systems requiring CUDA 13.0+.*
+```bash
+pip install torch torchvision --pre --extra-index-url https://download.pytorch.org/whl/cu130
+```
 
-* **optional arguments**: <br />	
-	&nbsp;&nbsp;&nbsp;&nbsp;-h, --help  show this help message and exit<br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-c, --conversions <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;String of conversion constants of the form '[lowest, interval, highest]' for a set of equally spaced conversion factors, or of the form '[conversion]' for a single conversion factor. Default value: '[.1,.1,2]' <br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-bs, --batchsize <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Batch size for embeddings generation. Default value: 128. <br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-ep, --epochs <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number of epochs used for embeddings generation. Default value: 10. <br />	
-	&nbsp;&nbsp;&nbsp;&nbsp;-lr, --learningrate <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Learning rate for training GCNN. Default value: .001. <br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-th, --threshold <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Loss threshold for training termination. Default value: 1e-8. <br />
-    
-* **Example**: ```python HiC-GNN_main.py Data/GM12878_1mb_chr19_list.txt```
+**Option C: CPU Only**
+*For laptops or non-GPU servers.*
+```bash
+pip install torch torchvision
+```
 
-### HiC-GNN_generalize.py
-This script takes in two Hi-C maps in coordinate list format. The script generates embeddings for the first input map and then trains a model using the map and the corresponding embeddings. The script then generates embeddings for the second input map and aligns these embeddings to those of the first input map and tests the model generated from the first input using these aligned embeddings. The output is a structure corresponding to the second input generalized from the model trained on the first input. The script searches for files corresponding to the raw matrix format, the normalized matrix format, the embeddings, and a trained model for the inputs in the current working directory. For example, if the input file is ```input.txt```, then the script checks if ```Data/input_matrix.txt```, ```Data/input_matrix_KR_normed.txt```, and ```Data/input_embeddings.txt``` exists. If these files do not exist, then the script generates them automatically.
+## 🚀 Usage
 
-**Inputs**: 
-1. A Hi-C contact map in either matrix format or coordinate list format.
+### Training & Prediction
+To generate a 3D structure from a contact map, run the main module. The script automatically handles normalization, embedding generation, and training.
 
-**Outputs**: 
-1. A .pdb file of the predicted 3D structure corresponding to the second input file in ```Outputs/input_2_generalized_structure.pdb```.
-2. A .txt file depicting the optimal conversion value and the dSCC value of the output structure```Outputs/input_2_generalized_log.txt```.
-3. A .pt file of the trained model weights corresponding to the first input file in ```Outputs/input_1_weights.pt```.
-4. A .txt of the normalized Hi-C contact map corresponding to the KR normalization of both input files in ```Data/input_matrix_KR_normed.txt``` if these files don't exist already.
-5. A .txt file of the embeddings corresponding to the input files in ```Data/input_embeddings.txt``` if these files don't exist already. 
-6. A .txt file of the input files in matrix format in ```Data/input_matrix.txt``` if these files don't exist already.
+```bash
+# Syntax: python -m src.main <path_to_data_file>
+python -m src.main data/GM12878_1mb_chr19_list.txt
+```
 
-**Usage**: ```python HiC-GNN_generalize.py input_filepath1 input_filepath2```
+### Benchmarking
+To test the speed and accuracy of your setup across multiple runs:
 
-* **positional arguments**: <br />
-&nbsp;&nbsp;&nbsp;&nbsp;```input_filepath1```: Path of the input file with which a model will be trained and later generalized on ```input_filepath2```. <br />
-&nbsp;&nbsp;&nbsp;&nbsp;```input_filepath2```: Path of the input file with which a generalized structure corresponding to a model trained on ```input_filepath1``` will be generated. <br />
+```bash
+python run_benchmark.py
+```
 
-* **optional arguments**: <br />	
-	&nbsp;&nbsp;&nbsp;&nbsp; Same as ```HiC-GNN_main.py```
-	
-* **Example**: ```python HiC-GNN_generalize.py Data/GM12878_1mb_chr19_list.txt Data/GM12878_500kb_chr19_list.txt```
+## 📊 Output Files
+After a successful run, the following files are saved in the `Outputs/` directory:
 
-### HiC-GNN_embed.py
-This script takes a single Hi-C contact map as an input and utilizes it to generate node embeddings. 
+* **`*_structure.pdb`**: The predicted 3D genome structure. Capable of being visualized in PyMOL, UCSF Chimera, or other molecular viewers.
+* **`*_weights.pt`**: The trained PyTorch model weights.
+* **Logs**: Training logs containing the Loss and Distance Spearman Correlation Coefficient (dSCC) for the optimal Alpha parameter.
 
-**Inputs**: 
-1. A Hi-C contact map in either matrix format or coordinate list format.
-
-**Outputs**: 
-1. A .txt file of the embeddings corresponding to the input files in ```Data/input_embeddings.txt```.
-2. (In the case that the input file was in list format) A .txt file of the input file in matrix format in ```Data/input_filename_matrix.txt```.
-
-**Usage**: ```python HiC-GNN_generalize.py input_filepath```
-
-* **positional arguments**: <br />
-&nbsp;&nbsp;&nbsp;&nbsp;```input_filepath1```: Path of the input file with which a embeddings will be generated. <br />
-
-* **optional arguments**: <br />	
-	&nbsp;&nbsp;&nbsp;&nbsp;-h, --help  show this help message and exit<br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-bs, --batchsize <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Batch size for embeddings generation. Default value: 128. <br />
-	&nbsp;&nbsp;&nbsp;&nbsp;-ep, --epochs <br />
-		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number of epochs used for embeddings generation. Default value: 10. <br />	
-		
-* **Example**: ```python HiC-GNN_embed.py Data/GM12878_1mb_chr19_list.txt```
+## ⚖️ License
+Distributed under the MIT License. See `LICENSE` for more information.
