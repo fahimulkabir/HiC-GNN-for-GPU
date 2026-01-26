@@ -8,7 +8,6 @@ import sys
 # ======================
 # CONFIGURATION
 # ======================
-# Ensure this matches your actual file path in data/
 DATASET = "data/GM12878_1mb_chr19_list.txt" 
 RUNS = 3
 RESULT_FILE = "benchmark_results.csv"
@@ -16,18 +15,18 @@ RESULT_FILE = "benchmark_results.csv"
 def parse_output(output_str):
     """
     Scans the script output for the 'Final Result' line.
-    Example: 'Final Result -> Best dSCC: 0.9464 (Alpha: 0.4)'
+    Handles standard floats (0.94) and scientific notation (1.2e-5).
     """
     dSCC = None
     alpha = None
     
-    # Regex to find the Best dSCC score
-    match = re.search(r"Best dSCC:\s*([0-9\.]+)", output_str)
+    # IMPROVED REGEX: Handles scientific notation (e.g., 1.23e-04) just in case
+    # Looks for "Best dSCC:", optional whitespace, then captures number
+    match = re.search(r"Best dSCC:\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)", output_str)
     if match:
         dSCC = float(match.group(1))
         
-    # Regex to find the Alpha
-    match_alpha = re.search(r"Alpha:\s*([0-9\.]+)", output_str)
+    match_alpha = re.search(r"Alpha:\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)", output_str)
     if match_alpha:
         alpha = float(match_alpha.group(1))
 
@@ -46,8 +45,6 @@ for i in range(RUNS):
 
     start_time = time.time()
     
-    # COMMAND: python -m src.main data/...
-    # capture_output=True lets us grab print statements to parse dSCC
     process = subprocess.run(
         [sys.executable, "-m", "src.main", DATASET],
         capture_output=True,
@@ -57,16 +54,19 @@ for i in range(RUNS):
     end_time = time.time()
     elapsed = end_time - start_time
 
-    # Check if it crashed
     if process.returncode != 0:
         print("FAILED")
         print("Error Log:\n", process.stderr)
         continue
 
-    # Parse results from the output text
     dSCC, alpha = parse_output(process.stdout)
 
-    print(f"Done in {elapsed:.1f}s | dSCC: {dSCC} (Alpha: {alpha})")
+    # ADDED: Safety check for parsing errors
+    if dSCC is None:
+        print("Warning: Script finished but couldn't parse dSCC score.")
+        print("Output snippet:", process.stdout[-200:]) # Print last 200 chars for debugging
+    else:
+        print(f"Done in {elapsed:.1f}s | dSCC: {dSCC} (Alpha: {alpha})")
 
     results.append({
         "run": i + 1,
@@ -82,10 +82,11 @@ for i in range(RUNS):
 if results:
     df = pd.DataFrame(results)
     
-    # Append to existing file if it exists, else create new
     if os.path.exists(RESULT_FILE):
+        # Append mode: header=False prevents writing columns again
         df.to_csv(RESULT_FILE, mode='a', header=False, index=False)
     else:
+        # Write mode: standard write with header
         df.to_csv(RESULT_FILE, index=False)
 
     print("\nBenchmark Summary:")
