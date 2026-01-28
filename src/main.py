@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import os
 import argparse
+import time
 from scipy.stats import spearmanr
 
 from .normalization import preprocess_hic_file, kr_normalization
@@ -12,6 +13,9 @@ from .utils import prepare_tensors, contact_to_distance, write_pdb
 from .models import UniversalHiCGNN
 
 def train_hic_gnn(filepath, device_name="cuda"):
+    # --- Start Timer ---
+    start_time = time.time()
+
     # --- 0. Setup Directories ---
     if not os.path.exists('Outputs'):
         os.makedirs('Outputs')
@@ -88,9 +92,14 @@ def train_hic_gnn(filepath, device_name="cuda"):
                 best_model_state = model.state_dict()
                 best_alpha = alpha
 
+    # --- Stop Timer ---
+    end_time = time.time() 
+    total_time = end_time - start_time
+
     # --- 6. Save Results ---
     print(f"\nFinal Result -> Best dSCC: {best_score:.4f} (Alpha: {best_alpha:.1f})")
-    
+    print(f"Total time sec: {total_time:.4f}")
+
     # Save Weights
     weight_path = f"Outputs/{filename}_weights.pt"
     torch.save(best_model_state, weight_path)
