@@ -12,7 +12,7 @@ dependencies:
   - pip
   - pip:
       # CRITICAL FIX: Use 'extra-index-url' so it sees both PyPI and PyTorch
-      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - --extra-index-url https://download.pytorch.org/whl/cu128
       - torch
       - torchvision
       - node2vec

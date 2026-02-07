@@ -45,6 +45,7 @@ def train_hic_gnn(filepath, device_name="cuda"):
     conversions = np.arange(0.1, 2.0, 0.1)
     
     best_score = -1
+    best_loss = float('inf')
     best_struct = None
     best_model_state = None
     best_alpha = None
@@ -88,6 +89,7 @@ def train_hic_gnn(filepath, device_name="cuda"):
             
             if score > best_score:
                 best_score = score
+                best_loss = loss.item()
                 best_struct = struct.cpu().numpy()
                 best_model_state = model.state_dict()
                 best_alpha = alpha
@@ -109,6 +111,14 @@ def train_hic_gnn(filepath, device_name="cuda"):
     pdb_path = f"Outputs/{filename}_structure.pdb"
     write_pdb(best_struct, pdb_path)
     print(f" -> Saved structure to {pdb_path}")
+
+    # Save Log File (inside Output folder)
+    log_path = f"Outputs/{filename}_log.txt"
+    with open(log_path, "w") as f:
+        f.write(f"Optimal conversion factor: {best_alpha}\n")
+        f.write(f"Optimal dSCC: {best_score}\n")
+        f.write(f"Final MSE loss: {best_loss}\n")
+    print(f" -> Saved logs to {log_path}")
     
     return best_score
 
